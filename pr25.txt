@@ -1,0 +1,163 @@
+// MainActivity.kt
+package com.example.labwork25
+
+import android.net.Uri
+import android.os.Bundle
+import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import com.example.labwork25.ui.theme.LabWork25Theme
+import java.io.File
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        setContent {
+            LabWork25Theme {
+                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+                    App(modifier = Modifier.padding(innerPadding))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun App(modifier: Modifier = Modifier) {
+    var screen by remember { mutableStateOf(0) }
+    when (screen) {
+        0 -> EulaScreen { screen = 1 }
+        1 -> RegisterScreen { screen = 2 }
+        2 -> NotesScreen { screen = 3 }
+        3 -> FileIOPage()
+    }
+}
+
+@Composable
+fun EulaScreen(onAccept: () -> Unit) {
+    val context = LocalContext.current
+    val eula = remember {
+        context.assets.open("eula.txt").bufferedReader().use { it.readText() }
+    }
+    var checked by remember { mutableStateOf(false) }
+
+    Column(modifier = Modifier.padding(16.dp)) {
+        Text(text = eula)
+        Spacer(Modifier.height(16.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(checked, { checked = it })
+            Text("Я прочитал и согласен")
+        }
+        Spacer(Modifier.height(16.dp))
+        Button(onClick = onAccept, enabled = checked) { Text("Принять") }
+    }
+}
+
+@Composable
+fun RegisterScreen(onNext: () -> Unit) {
+    val context = LocalContext.current
+    var login by remember { mutableStateOf("") }
+    var pass by remember { mutableStateOf("") }
+    var warn by remember { mutableStateOf("") }
+    val weak = remember {
+        context.assets.open("weak_passwords.txt").bufferedReader().readLines()
+    }
+
+    Column(Modifier.padding(16.dp)) {
+        TextField(login, { login = it }, label = { Text("Логин") })
+        TextField(pass, {
+            pass = it
+            warn = if (weak.contains(it)) "Слабый пароль!"  else ""
+        }, label = { Text("Пароль") })
+        if (warn.isNotEmpty()) Text(warn, color = MaterialTheme.colorScheme.error)
+        Spacer(Modifier.height(16.dp))
+        Button(onClick = onNext, enabled = login.isNotEmpty() && pass.isNotEmpty()) {
+            Text("Продолжить")
+        }
+    }
+}
+
+@Composable
+fun NotesScreen(onNext: () -> Unit) {
+    val context = LocalContext.current
+    var title by remember { mutableStateOf("") }
+    var content by remember { mutableStateOf("") }
+    val dir = File(context.filesDir, "notes").apply { mkdirs() }
+    val files = remember { mutableStateListOf(*dir.listFiles() ?: arrayOf()) }
+
+    Column(Modifier.padding(16.dp)) {
+        TextField(title, { title = it }, label = { Text("Название") })
+        TextField(content, { content = it }, label = { Text("Текст") })
+        Button({
+            File(dir, "$title.txt").writeText(content)
+            files.clear(); files.addAll(dir.listFiles() ?: arrayOf())
+        }) { Text("Сохранить") }
+        LazyColumn {
+            items(files) { file ->
+                Row(Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        title = file.nameWithoutExtension
+                        content = file.readText()
+                    }, verticalAlignment = Alignment.CenterVertically) {
+                    Text(file.name, Modifier.weight(1f))
+                    IconButton({
+                        file.delete()
+                        files.remove(file)
+                    }) {
+                        Icon(Icons.Default.Delete, contentDescription = null)
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Button(onClick = onNext) { Text("Далее") }
+    }
+}
+
+@Composable
+fun FileIOPage() {
+    val context = LocalContext.current
+    var text by remember { mutableStateOf(TextFieldValue("")) }
+    val openFile = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        uri?.let {
+            context.contentResolver.openInputStream(it)?.use {
+                text = TextFieldValue(it.bufferedReader().readText())
+            }
+        }
+    }
+    val saveFile = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+        uri?.let {
+            context.contentResolver.openOutputStream(it)?.use {
+                it.write(text.text.toByteArray())
+                Toast.makeText(context, "Сохранено", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    Column(Modifier.padding(16.dp)) {
+        TextField(text, { text = it }, label = { Text("Текст") })
+        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
+            Button({ openFile.launch("text/plain") }) { Text("Открыть") }
+            Button({ saveFile.launch("note.txt") }) { Text("Сохранить") }
+        }
+    }
+}
